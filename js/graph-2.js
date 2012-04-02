@@ -1,6 +1,7 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 (function($) {
 
     var minT, maxT;
@@ -16,7 +17,7 @@
         updateBindings();
         var args = getUrlVars();
         var tests = args['tests'];
-        sel = args['sel'] ? args['sel'] : 'none';
+        var zoomRanges = selToZoomRanges(args['sel']);
         if (tests) {
             try {
                 tests = JSON.parse(decodeURIComponent(tests));
@@ -34,7 +35,7 @@
                 var branchid = run[1];
                 var platformid = run[2];
 
-                fetchData(testid, branchid, platformid, sel);
+                fetchData(testid, branchid, platformid, zoomRanges);
             }
         } else {
             addMoreTestData();
@@ -283,18 +284,13 @@
     function onExportCSV(e)
     {
         e.preventDefault();
-        var startDate;
-        var endDate;
 
-        if (GraphCommon.zoomFrom && GraphCommon.zoomTo) {
-            startDate = new Date(GraphCommon.zoomFrom);
-            endDate = new Date(GraphCommon.zoomTo);
-        } else {
-            startDate = new Date(minT);
-            endDate = new Date(maxT);
-        }
-        var url = 'http://graphs.mozilla.org/server/dumpdata.cgi?' +
-                  'show=' + startDate.getTime() + ',' + endDate.getTime();
+        var range = GraphCommon.getZoomXRange();
+        var start = (new Date(range.from)).getDate();
+        var end = (new Date(range.to)).getDate();
+
+        var url = 'http://graphs.mozilla.org/server/dumpdata.cgi?show=' +
+                  start + ',' + end;
         window.open(url);
     }
 
@@ -304,7 +300,7 @@
         e.preventDefault();
     }
 
-    function fetchData(testid, branchid, platformid, sel) {
+    function fetchData(testid, branchid, platformid, zoomRanges) {
         var uniqueSeries = 'series_' + testid + '_' + branchid + '_' +
                            platformid;
         if (GraphCommon.allSeries.hasOwnProperty(uniqueSeries)) {
@@ -320,14 +316,14 @@
         if (manifest) {
             downloadSeries(testid, branchid, platformid);
         } else {
-            loadSeries.push([testid, branchid, platformid, sel]);
+            loadSeries.push([testid, branchid, platformid, zoomRanges]);
             if (!downloadingManifest) {
                 downloadManifest();
             }
         }
     }
 
-    function downloadSeries(testid, branchid, platformid, sel) {
+    function downloadSeries(testid, branchid, platformid, zoomRanges) {
         var addSeriesNode = addSeries(testid, branchid, platformid, false);
         $.ajaxSetup({
             'error': function(xhr, e, message) {
@@ -353,12 +349,8 @@
                 }
                 GraphCommon.initData(testid, branchid, platformid, data);
                 GraphCommon.updatePlot();
-                if (sel && sel != 'none') {
-                    var range = {
-                        from: parseInt(sel.split(',')[0]),
-                        to: parseInt(sel.split(',')[1])
-                    };
-                    GraphCommon.zoomToRange(range);
+                if (zoomRanges) {
+                    GraphCommon.zoomToRange(zoomRanges.xaxis, zoomRanges.yaxis);
                 }
                 addSeries(testid, branchid, platformid, addSeriesNode);
                 updateBindings();
@@ -386,8 +378,8 @@
                 var testid = loadSeries[i][0];
                 var branchid = loadSeries[i][1];
                 var platformid = loadSeries[i][2];
-                var sel = loadSeries[i][3];
-                downloadSeries(testid, branchid, platformid, sel);
+                var zoomRanges = loadSeries[i][3];
+                downloadSeries(testid, branchid, platformid, zoomRanges);
             }
         });
     }
@@ -419,7 +411,7 @@
 
         // find changes which match this range
         var csets = [];
-        var range = GraphCommon.getZoomRange();
+        var range = GraphCommon.getZoomXRange();
         var branches = [];
         $.each(GraphCommon.allSeries, function(i, series) {
             if (series.runs === undefined) {
@@ -429,9 +421,7 @@
             $.each(series.runs, function(j, run) {
                 $.each(run.data, function(k, data) {
                     var time = parseInt(data.t);
-                    var from = parseInt(range.from);
-                    var to = parseInt(range.to);
-                    if (time >= from && time <= to) {
+                    if (time >= range.from && time <= range.to) {
                         if (repository &&
                             repository != window.DEFAULT_REPOSITORY) {
                             var sets = data.additionalChangesets;
